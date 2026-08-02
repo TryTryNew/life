@@ -19,28 +19,29 @@ exports.handler = async (event, context) => {
   }
 
   try {
-    const data = JSON.parse(event.body);
-    const content = data.content;
+    const data = JSON.parse(event.body || "{}");
+    
+    // 優先讀取獨立的 action 與 feeling，若舊捷徑只傳 content 也能相容
+    const action = data.action || data.content;
+    const feeling = data.feeling || "";
 
-    if (!content || !content.trim()) {
-      return { statusCode: 400, body: JSON.stringify({ error: "內容不能為空" }) };
+    if (!action || !action.trim()) {
+      return { statusCode: 400, body: JSON.stringify({ error: "做什麼事情不能為空" }) };
     }
 
     // 取得台灣時間與日期
     const now = new Date();
-    // 轉為 YYYY-MM-DD
     const localDate = new Date(now.getTime() + (8 * 60 * 60 * 1000)); // UTC+8
     const dateStr = localDate.toISOString().split('T')[0];
-    // 轉為 HH:mm
     const timeStr = localDate.toISOString().split('T')[1].substring(0, 5);
 
-    // 寫入與你的 PWA 格式完全一致的 Firestore logs 格式
+    // 寫入 Firestore
     await db.collection("logs").add({
       date: dateStr,
       time: timeStr,
       type: "timeline",
-      action: content,
-      feeling: "",
+      action: action.trim(),
+      feeling: feeling.trim(),
       source: "ios_shortcut",
       updatedAt: FieldValue.serverTimestamp()
     });
@@ -54,6 +55,7 @@ exports.handler = async (event, context) => {
     console.error("Firebase Error:", error);
     return {
       statusCode: 500,
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ error: error.message })
     };
   }
