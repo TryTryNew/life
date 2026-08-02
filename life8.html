@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Life Log PWA</title>
+  <link rel="manifest" href="manifest.json">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <!-- Firebase Firestore SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+    body { font-family: 'Plus Jakarta Sans', -apple-system, sans-serif; background-color: #FFFDF8; }
+    .tab-peach { background-color: #FFDED6; color: #1E293B; font-weight: 700; }
+    .tab-yellow { background-color: #FDE047; color: #1E293B; font-weight: 700; }
+    .tab-pink { background-color: #FBCFE8; color: #1E293B; font-weight: 700; }
+    .tab-purple { background-color: #E9D5FF; color: #1E293B; font-weight: 700; }
+  </style>
+</head>
+<body class="text-slate-800 max-w-md mx-auto min-h-screen pb-24 border-x border-orange-100/40 bg-[#FFFDF8] shadow-xl relative">
+
+  <!-- 頂部導覽列 (已移除右上角重複的 AI 按鈕) -->
+  <header class="sticky top-0 bg-[#FFFDF8]/90 backdrop-blur-md z-20 px-4 py-3 border-b border-orange-100/50">
+    <div class="flex items-center justify-between mb-3">
+      <div class="flex items-center space-x-1 bg-orange-50 px-2 py-1 rounded-2xl w-full justify-between">
+        <button id="prev-date" class="p-1 hover:bg-white rounded-full text-orange-800 transition"><i class="fa-solid fa-chevron-left text-xs"></i></button>
+        <input type="date" id="date-picker" class="bg-transparent font-bold text-sm text-slate-700 cursor-pointer focus:outline-none text-center">
+        <button id="next-date" class="p-1 hover:bg-white rounded-full text-orange-800 transition"><i class="fa-solid fa-chevron-right text-xs"></i></button>
+      </div>
+    </div>
+
+    <!-- 搜尋框 -->
+    <div class="relative">
+      <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-orange-300 text-sm"></i>
+      <input type="text" id="search-input" placeholder="搜尋做了什麼事、感想或照片..." 
+             class="w-full bg-white text-sm pl-9 pr-4 py-2 rounded-2xl border border-orange-200/60 focus:outline-none focus:ring-2 focus:ring-orange-300 transition placeholder-slate-400 shadow-sm">
+    </div>
+  </header>
+
+  <!-- 主內容區 -->
+  <main class="p-4 space-y-6">
+
+    <!-- 0. 綜合視圖 -->
+    <section id="view-combined" class="space-y-6">
+      <div class="space-y-3">
+        <div class="flex items-center justify-between h-6">
+          <span class="text-xs font-bold tracking-wider text-orange-500 uppercase"><i class="fa-solid fa-clock mr-1"></i> Daily Timeline</span>
+          <button onclick="openModal('timeline')" class="text-xs bg-[#FDE047] hover:bg-[#FACC15] text-slate-800 font-bold px-3 py-1 rounded-xl shadow-sm transition active:scale-95">
+            + 新增紀錄
+          </button>
+        </div>
+        <div id="combined-timeline-list" class="space-y-3"></div>
+      </div>
+
+      <div class="pt-4 border-t border-orange-100/60 space-y-3">
+        <div class="flex items-center justify-between h-6">
+          <span class="text-xs font-bold tracking-wider text-pink-500 uppercase"><i class="fa-solid fa-camera mr-1"></i> Photo Gallery</span>
+          <button onclick="openModal('photo')" class="text-xs bg-[#FBCFE8] hover:bg-[#F9A8D4] text-slate-800 font-bold px-3 py-1 rounded-xl shadow-sm transition active:scale-95">
+            + 上傳照片
+          </button>
+        </div>
+        <div id="combined-photo-grid" class="grid grid-cols-2 gap-3"></div>
+      </div>
+    </section>
+
+    <!-- 1. 純日誌時間軸視圖 -->
+    <section id="view-timeline" class="space-y-3 hidden">
+      <div class="flex items-center justify-between h-7">
+        <span class="text-xs font-bold tracking-wider text-orange-500 uppercase"><i class="fa-solid fa-clock mr-1"></i> Timeline</span>
+        <button onclick="openModal('timeline')" class="text-xs bg-[#FDE047] hover:bg-[#FACC15] text-slate-800 font-bold px-3 py-1 rounded-xl shadow-sm transition active:scale-95">
+          + 新增時間軸
+        </button>
+      </div>
+      <div id="timeline-list" class="space-y-3"></div>
+    </section>
+
+    <!-- 2. 純相片牆視圖 -->
+    <section id="view-photos" class="space-y-3 hidden">
+      <div class="flex items-center justify-between h-7">
+        <span class="text-xs font-bold tracking-wider text-pink-500 uppercase"><i class="fa-solid fa-camera mr-1"></i> Gallery</span>
+        <button onclick="openModal('photo')" class="text-xs bg-[#FBCFE8] hover:bg-[#F9A8D4] text-slate-800 font-bold px-3 py-1 rounded-xl shadow-sm transition active:scale-95">
+          + 上傳照片
+        </button>
+      </div>
+      <div id="photo-grid" class="grid grid-cols-2 gap-3"></div>
+    </section>
+
+    <!-- 3. AI 總結頁面 -->
+    <section id="view-summary" class="space-y-4 hidden">
+      <div class="flex items-center justify-between h-7">
+        <span class="text-xs font-bold tracking-wider text-purple-500 uppercase"><i class="fa-solid fa-sparkles mr-1"></i> 生活總結與回顧</span>
+        <button onclick="generateSummary()" class="text-xs bg-[#E9D5FF] hover:bg-[#D8B4FE] text-slate-800 font-bold px-3 py-1.5 rounded-xl shadow-sm transition active:scale-95 flex items-center">
+          <i id="summary-spin-icon" class="fa-solid fa-rotate mr-1"></i> 重新生成
+        </button>
+      </div>
+
+      <div class="flex bg-purple-50/80 p-1 rounded-2xl border border-purple-100 justify-between text-xs font-bold text-slate-500">
+        <button id="sum-tab-day" onclick="switchSummaryType('day')" class="flex-1 py-1.5 rounded-xl transition bg-white text-purple-700 shadow-xs">日</button>
+        <button id="sum-tab-week" onclick="switchSummaryType('week')" class="flex-1 py-1.5 rounded-xl transition">週</button>
+        <button id="sum-tab-month" onclick="switchSummaryType('month')" class="flex-1 py-1.5 rounded-xl transition">月</button>
+        <button id="sum-tab-quarter" onclick="switchSummaryType('quarter')" class="flex-1 py-1.5 rounded-xl transition">季</button>
+        <button id="sum-tab-year" onclick="switchSummaryType('year')" class="flex-1 py-1.5 rounded-xl transition">年</button>
+      </div>
+
+      <div class="bg-gradient-to-br from-purple-50/60 via-pink-50/30 to-amber-50/40 p-4 rounded-3xl border border-purple-100 shadow-xs space-y-3">
+        <div class="flex items-center justify-between border-b border-purple-100/80 pb-2">
+          <div class="flex items-center space-x-2 text-purple-700 font-bold text-sm">
+            <i class="fa-solid fa-wand-magic-sparkles text-purple-500"></i>
+            <span id="summary-title">今日生活回顧</span>
+          </div>
+          <span id="summary-badge" class="text-[10px] bg-purple-200/60 text-purple-800 font-bold px-2 py-0.5 rounded-full">精彩足跡</span>
+        </div>
+
+        <div id="summary-tags" class="flex flex-wrap gap-1.5 pt-1"></div>
+
+        <div id="summary-content" class="text-xs text-slate-700 leading-relaxed pt-1 space-y-3">
+          點擊「重新生成」，幫你把生活足跡與感想整理成精彩回顧！
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. 搜尋結果視圖 -->
+    <section id="view-search" class="space-y-4 hidden">
+      <div class="text-xs font-bold tracking-wider text-slate-400 uppercase">🔍 搜尋結果</div>
+      <div id="search-results" class="space-y-3"></div>
+    </section>
+
+  </main>
+
+  <!-- 底部 Tab 導覽列 -->
+  <nav class="fixed bottom-3 left-1/2 -translate-x-1/2 w-[92%] max-w-sm bg-white/90 backdrop-blur-md rounded-full shadow-lg border border-orange-100 p-1.5 flex justify-between items-center z-20">
+    <button id="tab-combined" onclick="switchTab('combined')" class="flex items-center space-x-1 px-3.5 py-2 rounded-full text-xs transition tab-peach">
+      <i class="fa-solid fa-border-all"></i>
+      <span>綜合</span>
+    </button>
+    <button id="tab-timeline" onclick="switchTab('timeline')" class="flex items-center space-x-1 px-3.5 py-2 rounded-full text-xs text-slate-400 hover:text-slate-600 transition">
+      <i class="fa-solid fa-clock"></i>
+      <span>日誌</span>
+    </button>
+    <button id="tab-photos" onclick="switchTab('photos')" class="flex items-center space-x-1 px-3.5 py-2 rounded-full text-xs text-slate-400 hover:text-slate-600 transition">
+      <i class="fa-solid fa-images"></i>
+      <span>相片牆</span>
+    </button>
+    <button id="tab-summary" onclick="switchTab('summary')" class="flex items-center space-x-1 px-3.5 py-2 rounded-full text-xs text-slate-400 hover:text-slate-600 transition">
+      <i class="fa-solid fa-sparkles"></i>
+      <span>總結</span>
+    </button>
+  </nav>
+
+  <!-- 新增/編輯彈窗 (雙格子結構) -->
+  <div id="modal" class="fixed inset-0 bg-slate-900/30 backdrop-blur-sm hidden items-center justify-center p-4 z-50">
+    <div class="bg-white rounded-3xl p-5 w-full max-w-xs shadow-2xl space-y-3 border border-orange-50">
+      <h3 id="modal-title" class="font-bold text-slate-800 text-base">新增紀錄</h3>
+      
+      <input type="hidden" id="edit-id">
+      <input type="hidden" id="edit-type">
+
+      <!-- 時間選擇 -->
+      <div>
+        <label class="text-[11px] font-bold text-slate-400">時間</label>
+        <input type="time" id="input-time" class="w-full border border-slate-200/80 rounded-xl p-2 text-xs mt-1 focus:ring-2 focus:ring-orange-300 focus:outline-none bg-slate-50 font-bold text-slate-700">
+      </div>
+
+      <!-- 格子一：做了什麼事情 (Action) -->
+      <div>
+        <label class="text-[11px] font-bold text-orange-500">做了什麼事情？ (足跡/事件)</label>
+        <input type="text" id="input-action" placeholder="例：去散步、跟朋友吃火鍋、看完這本書..." class="w-full border border-orange-200/80 rounded-xl p-2 text-xs mt-1 focus:ring-2 focus:ring-orange-300 focus:outline-none bg-orange-50/30 font-medium text-slate-800">
+      </div>
+
+      <!-- 格子二：感想與感受 (Feelings/Thoughts) -->
+      <div>
+        <label class="text-[11px] font-bold text-purple-500">當下的感想 / 感受 / 想法 (選填)</label>
+        <textarea id="input-feeling" rows="2.5" class="w-full border border-purple-200/80 rounded-xl p-2 text-xs mt-1 focus:ring-2 focus:ring-purple-300 focus:outline-none bg-purple-50/20 text-slate-700" placeholder="例：心情好治癒！這家的湯頭真的太厲害了..."></textarea>
+      </div>
+
+      <!-- 照片上傳區 -->
+      <div id="photo-input-group" class="hidden">
+        <label class="text-[11px] font-bold text-pink-500">上傳照片 (照片牆視覺)</label>
+        <input type="file" id="input-file" accept="image/*" class="w-full text-xs text-slate-500 mt-1 file:mr-2 file:py-1 file:px-2.5 file:rounded-xl file:border-0 file:bg-[#FBCFE8] file:text-slate-800 file:font-semibold hover:file:bg-[#F9A8D4] transition">
+        <img id="image-preview" class="w-full h-28 object-cover rounded-xl mt-2 hidden border border-slate-100">
+      </div>
+
+      <div class="flex items-center justify-between pt-1">
+        <button id="delete-btn" onclick="deleteItem()" class="text-xs text-rose-400 font-medium hover:text-rose-600 hidden">刪除此筆</button>
+        <div class="flex space-x-2 ml-auto">
+          <button onclick="closeModal()" class="px-3.5 py-1.5 text-xs font-semibold text-slate-400 rounded-xl hover:bg-slate-50 transition">取消</button>
+          <button id="save-btn" onclick="saveData()" class="px-3.5 py-1.5 text-xs font-bold bg-slate-800 text-white rounded-xl hover:bg-slate-700 shadow-sm transition">確認儲存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyBz20RhNsxa7ORUXePNOqRQLt4Q81UxFPY",
+      authDomain: "daretotry-57d16.firebaseapp.com",
+      projectId: "daretotry-57d16",
+      storageBucket: "daretotry-57d16.firebasestorage.app",
+      messagingSenderId: "69401268575",
+      appId: "1:69401268575:web:19d6fe87bad4530395e6ea",
+      measurementId: "G-3N17FQ8P4F"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    let currentDate = new Date().toISOString().split('T')[0];
+    let currentSummaryType = 'day';
+    let appData = [];
+    let selectedFileBase64 = null;
+
+    document.getElementById('date-picker').value = currentDate;
+
+    db.collection("logs").onSnapshot((snapshot) => {
+      appData = [];
+      snapshot.forEach((doc) => {
+        appData.push({ id: doc.id, ...doc.data() });
+      });
+      render();
+    });
+
+    document.getElementById('date-picker').addEventListener('change', (e) => {
+      currentDate = e.target.value;
+      render();
+    });
+    document.getElementById('prev-date').addEventListener('click', () => changeDate(-1));
+    document.getElementById('next-date').addEventListener('click', () => changeDate(1));
+    document.getElementById('search-input').addEventListener('input', handleSearch);
+
+    document.getElementById('input-file').addEventListener('change', async function(e) {
+      const file = e.target.files[0];
+      if (file) {
+        selectedFileBase64 = await convertAndCompressToBase64(file);
+        const img = document.getElementById('image-preview');
+        img.src = selectedFileBase64;
+        img.classList.remove('hidden');
+      }
+    });
+
+    function convertAndCompressToBase64(file) {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (event) => {
+          const img = new Image();
+          img.src = event.target.result;
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            let width = img.width;
+            let height = img.height;
+            const maxDimension = 2048;
+
+            if (width > maxDimension || height > maxDimension) {
+              if (width > height) {
+                height = Math.round((height * maxDimension) / width);
+                width = maxDimension;
+              } else {
+                width = Math.round((width * maxDimension) / height);
+                height = maxDimension;
+              }
+            }
+
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            const base64String = canvas.toDataURL('image/jpeg', 0.75);
+            resolve(base64String);
+          };
+        };
+      });
+    }
+
+    function changeDate(days) {
+      let d = new Date(currentDate);
+      d.setDate(d.getDate() + days);
+      currentDate = d.toISOString().split('T')[0];
+      document.getElementById('date-picker').value = currentDate;
+      render();
+    }
+
+    function switchTab(tab) {
+      document.getElementById('view-combined').classList.toggle('hidden', tab !== 'combined');
+      document.getElementById('view-timeline').classList.toggle('hidden', tab !== 'timeline');
+      document.getElementById('view-photos').classList.toggle('hidden', tab !== 'photos');
+      document.getElementById('view-summary').classList.toggle('hidden', tab !== 'summary');
+      document.getElementById('view-search').classList.add('hidden');
+
+      document.getElementById('tab-combined').className = `flex items-center space-x-1 px-3.5 py-2 rounded-full text-xs transition ${tab === 'combined' ? 'tab-peach' : 'text-slate-400 hover:text-slate-600'}`;
+      document.getElementById('tab-timeline').className = `flex items-center space-x-1 px-3.5 py-2 rounded-full text-xs transition ${tab === 'timeline' ? 'tab-yellow' : 'text-slate-400 hover:text-slate-600'}`;
+      document.getElementById('tab-photos').className = `flex items-center space-x-1 px-3.5 py-2 rounded-full text-xs transition ${tab === 'photos' ? 'tab-pink' : 'text-slate-400 hover:text-slate-600'}`;
+      document.getElementById('tab-summary').className = `flex items-center space-x-1 px-3.5 py-2 rounded-full text-xs transition ${tab === 'summary' ? 'tab-purple' : 'text-slate-400 hover:text-slate-600'}`;
+
+      if(tab === 'summary') generateSummary();
+    }
+
+    function switchSummaryType(type) {
+      currentSummaryType = type;
+      ['day','week','month','quarter','year'].forEach(t => {
+        const btn = document.getElementById(`sum-tab-${t}`);
+        btn.className = (t === type) 
+          ? "flex-1 py-1.5 rounded-xl transition bg-white text-purple-700 shadow-xs font-bold" 
+          : "flex-1 py-1.5 rounded-xl transition hover:text-slate-700";
+      });
+      generateSummary();
+    }
+
+    // 核心亮點：支援三元素 (時間+做的事+感想) 與雙元素 (時間+做的事 OR 時間+感想) 視覺卡片
+    function getTimelineHTML(items) {
+      if(items.length === 0) return `<div class="text-center py-6 text-xs text-orange-800/30">今天還沒有紀錄，點擊右上角新增✨</div>`;
+      return items.map(item => {
+        const action = item.action || item.title || (item.text && !item.feeling ? item.text : '');
+        const feeling = item.feeling || (item.text && item.title ? item.text : '');
+
+        // 判斷視覺模式
+        const hasAction = Boolean(action.trim());
+        const hasFeeling = Boolean(feeling.trim());
+
+        return `
+          <div onclick="editItem('${item.id}')" class="flex space-x-3 group cursor-pointer">
+            <!-- 時間點 -->
+            <div class="w-11 text-xs font-bold text-orange-400 pt-1 text-right">${item.time || '全天'}</div>
+            
+            <div class="relative pl-4 border-l-2 border-orange-200/50 flex-1 pb-1">
+              <div class="absolute -left-[5px] top-2.5 w-2 h-2 rounded-full bg-[#FDE047] group-hover:scale-125 transition"></div>
+              
+              <div class="bg-white p-3.5 rounded-2xl shadow-sm border border-orange-50/80 hover:border-[#FDE047] transition space-y-2">
+                
+                <!-- 1. 做了什麼事 (加粗大字，方便快速滾動檢視) -->
+                ${hasAction ? `
+                  <div class="text-sm font-bold text-slate-800 leading-snug flex items-start space-x-1.5">
+                    <span class="text-amber-500 text-xs mt-0.5">✨</span>
+                    <span>${action}</span>
+                  </div>
+                ` : ''}
+
+                <!-- 2. 感想與感受 (可愛柔和手帳風格區塊) -->
+                ${hasFeeling ? `
+                  <div class="${hasAction ? 'bg-amber-50/50 p-2.5 rounded-xl border border-amber-100/60' : ''}">
+                    <p class="text-xs text-slate-600 leading-relaxed font-normal">
+                      ${!hasAction ? '<span class="text-purple-400 font-bold mr-1">💭 心情：</span>' : ''}${feeling}
+                    </p>
+                  </div>
+                ` : ''}
+
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function getPhotoHTML(items) {
+      if(items.length === 0) return `<div class="col-span-2 text-center py-6 text-xs text-pink-800/30">今天還沒有照片留念📸</div>`;
+      return items.map(item => {
+        const caption = item.action || item.feeling || item.text || '照片紀錄';
+        return `
+          <div onclick="editItem('${item.id}')" class="bg-white rounded-2xl overflow-hidden shadow-sm border border-pink-50 cursor-pointer hover:shadow-md hover:border-[#FBCFE8] transition">
+            <div class="relative w-full aspect-square bg-slate-50">
+              <img src="${item.imgUrl}" class="w-full h-full object-cover">
+              ${item.time ? `<div class="absolute bottom-2 right-2 bg-white/80 backdrop-blur-md text-slate-800 font-bold text-[10px] px-2 py-0.5 rounded-full shadow-sm">${item.time}</div>` : ''}
+            </div>
+            <div class="p-2 flex items-center justify-between">
+              <p class="text-xs font-medium text-slate-700 line-clamp-1 flex-1 mr-1">${caption}</p>
+              <a href="${item.imgUrl}" download="lifelog_${item.date}.jpg" onclick="event.stopPropagation()" class="text-pink-400 hover:text-pink-600 p-1">
+                <i class="fa-solid fa-download text-xs"></i>
+              </a>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function render() {
+      const dayData = appData.filter(item => item.date === currentDate);
+      const timelineItems = dayData.filter(i => i.type === 'timeline').sort((a,b) => (a.time||'').localeCompare(b.time||''));
+      const photoItems = dayData.filter(i => i.type === 'photo').sort((a,b) => (a.time||'').localeCompare(b.time||''));
+
+      document.getElementById('combined-timeline-list').innerHTML = getTimelineHTML(timelineItems);
+      document.getElementById('combined-photo-grid').innerHTML = getPhotoHTML(photoItems);
+
+      document.getElementById('timeline-list').innerHTML = getTimelineHTML(timelineItems);
+      document.getElementById('photo-grid').innerHTML = getPhotoHTML(photoItems);
+    }
+
+    // 重構 AI 總結生成邏輯：獨立呈現「足跡」與「感受」
+    function generateSummary() {
+      const icon = document.getElementById('summary-spin-icon');
+      icon.classList.add('fa-spin');
+
+      setTimeout(() => {
+        icon.classList.remove('fa-spin');
+        
+        const titleMap = { day: '今日生活回顧', week: '本週精彩複盤', month: '本月畫報摘要', quarter: '本季生活總結', year: '年度精彩故事' };
+        document.getElementById('summary-title').innerText = titleMap[currentSummaryType];
+
+        let filteredData = [];
+        const curDateObj = new Date(currentDate);
+
+        if(currentSummaryType === 'day') {
+          filteredData = appData.filter(i => i.date === currentDate);
+        } else if(currentSummaryType === 'week') {
+          filteredData = appData.filter(i => {
+            const d = new Date(i.date);
+            return Math.abs(curDateObj - d) / (1000 * 60 * 60 * 24) <= 7;
+          });
+        } else if(currentSummaryType === 'month') {
+          filteredData = appData.filter(i => i.date.substring(0,7) === currentDate.substring(0,7));
+        } else {
+          filteredData = appData.filter(i => i.date.substring(0,4) === currentDate.substring(0,4));
+        }
+
+        const tagsBox = document.getElementById('summary-tags');
+        const contentBox = document.getElementById('summary-content');
+
+        if(filteredData.length === 0) {
+          tagsBox.innerHTML = `<span class="text-[10px] bg-white text-slate-400 px-2.5 py-1 rounded-full border">#累積紀錄中</span>`;
+          contentBox.innerHTML = `<div class="text-slate-400 text-center py-4">在這個期間還沒有足夠的紀錄喔！✨</div>`;
+          return;
+        }
+
+        const actions = filteredData.map(i => i.action || i.title).filter(Boolean);
+        const feelings = filteredData.map(i => i.feeling || i.text).filter(Boolean);
+        const photoCount = filteredData.filter(i => i.type === 'photo').length;
+
+        tagsBox.innerHTML = `
+          <span class="text-[10px] bg-white text-purple-700 font-bold px-2.5 py-1 rounded-full border border-purple-100">記錄了 ${actions.length} 件大事</span>
+          <span class="text-[10px] bg-white text-pink-600 font-bold px-2.5 py-1 rounded-full border border-pink-100">${photoCount} 張精選照片</span>
+        `;
+
+        let html = '';
+        if(actions.length > 0) {
+          html += `
+            <div class="bg-white/80 p-3 rounded-2xl border border-purple-100 space-y-1">
+              <div class="font-bold text-purple-800 text-xs">🌟 精彩足跡：</div>
+              <p class="text-slate-700 leading-relaxed">${actions.join('、')}</p>
+            </div>
+          `;
+        }
+
+        if(feelings.length > 0) {
+          html += `
+            <div class="bg-white/80 p-3 rounded-2xl border border-pink-100 space-y-1">
+              <div class="font-bold text-pink-700 text-xs">💖 情感與摘錄：</div>
+              <p class="text-slate-600 leading-relaxed italic">"${feelings.join('"；"')}"</p>
+            </div>
+          `;
+        }
+
+        contentBox.innerHTML = html;
+      }, 300);
+    }
+
+    function handleSearch(e) {
+      const keyword = e.target.value.trim().toLowerCase();
+      if(!keyword) {
+        document.getElementById('view-search').classList.add('hidden');
+        switchTab('combined');
+        render();
+        return;
+      }
+
+      document.getElementById('view-combined').classList.add('hidden');
+      document.getElementById('view-timeline').classList.add('hidden');
+      document.getElementById('view-photos').classList.add('hidden');
+      document.getElementById('view-summary').classList.add('hidden');
+      document.getElementById('view-search').classList.remove('hidden');
+
+      const results = appData.filter(item => 
+        (item.action && item.action.toLowerCase().includes(keyword)) ||
+        (item.feeling && item.feeling.toLowerCase().includes(keyword)) ||
+        (item.text && item.text.toLowerCase().includes(keyword))
+      );
+      
+      const searchBox = document.getElementById('search-results');
+
+      if(results.length === 0) {
+        searchBox.innerHTML = `<div class="text-center py-8 text-xs text-slate-400">找不到包含「${keyword}」的紀錄</div>`;
+      } else {
+        searchBox.innerHTML = results.map(item => `
+          <div onclick="jumpToDate('${item.date}')" class="bg-white p-3.5 rounded-2xl border border-orange-100 shadow-sm cursor-pointer hover:border-[#FDE047]">
+            <div class="flex justify-between text-[10px] font-bold text-orange-500 mb-1">
+              <span>📅 ${item.date} ${item.time || ''}</span>
+            </div>
+            ${item.action ? `<div class="text-xs font-bold text-slate-800">${item.action}</div>` : ''}
+            ${item.feeling ? `<div class="text-xs text-slate-600 mt-1">${item.feeling}</div>` : ''}
+            ${item.imgUrl ? `<img src="${item.imgUrl}" class="w-full h-24 object-cover rounded-xl my-2">` : ''}
+          </div>
+        `).join('');
+      }
+    }
+
+    function jumpToDate(date) {
+      currentDate = date;
+      document.getElementById('date-picker').value = currentDate;
+      document.getElementById('search-input').value = '';
+      switchTab('combined');
+      render();
+    }
+
+    function openModal(type) {
+      document.getElementById('modal-title').innerText = type === 'timeline' ? '新增日誌' : '上傳照片';
+      document.getElementById('edit-id').value = '';
+      document.getElementById('edit-type').value = type;
+      document.getElementById('input-time').value = new Date().toTimeString().slice(0,5);
+      document.getElementById('input-action').value = '';
+      document.getElementById('input-feeling').value = '';
+      document.getElementById('input-file').value = '';
+      document.getElementById('image-preview').classList.add('hidden');
+      document.getElementById('delete-btn').classList.add('hidden');
+      selectedFileBase64 = null;
+
+      document.getElementById('photo-input-group').classList.toggle('hidden', type !== 'photo');
+
+      document.getElementById('modal').classList.remove('hidden');
+      document.getElementById('modal').classList.add('flex');
+    }
+
+    function closeModal() {
+      document.getElementById('modal').classList.add('hidden');
+      document.getElementById('modal').classList.remove('flex');
+    }
+
+    async function saveData() {
+      const saveBtn = document.getElementById('save-btn');
+      saveBtn.innerText = '儲存中...';
+      saveBtn.disabled = true;
+
+      try {
+        const id = document.getElementById('edit-id').value || Date.now().toString();
+        const type = document.getElementById('edit-type').value;
+        const time = document.getElementById('input-time').value;
+        const action = document.getElementById('input-action').value;
+        const feeling = document.getElementById('input-feeling').value;
+        let imgUrl = '';
+
+        if (!action.trim() && !feeling.trim() && type !== 'photo') {
+          alert('請至少填寫做了什麼事情或寫點感想喔！');
+          saveBtn.innerText = '確認儲存';
+          saveBtn.disabled = false;
+          return;
+        }
+
+        if (type === 'photo') {
+          if (selectedFileBase64) {
+            imgUrl = selectedFileBase64;
+          } else if (document.getElementById('edit-id').value) {
+            const existing = appData.find(i => i.id === id);
+            imgUrl = existing ? existing.imgUrl : '';
+          } else {
+            alert('請選擇照片喔！');
+            saveBtn.innerText = '確認儲存';
+            saveBtn.disabled = false;
+            return;
+          }
+        }
+
+        const itemData = {
+          date: currentDate,
+          type,
+          time,
+          action,
+          feeling,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
+
+        if(imgUrl) itemData.imgUrl = imgUrl;
+
+        await db.collection("logs").doc(id).set(itemData, { merge: true });
+        closeModal();
+      } catch (error) {
+        alert("同步失敗，請檢查 Firebase 設定！");
+        console.error(error);
+      } finally {
+        saveBtn.innerText = '確認儲存';
+        saveBtn.disabled = false;
+      }
+    }
+
+    function editItem(id) {
+      const item = appData.find(i => i.id === id);
+      if(!item) return;
+
+      openModal(item.type);
+      document.getElementById('modal-title').innerText = '編輯紀錄';
+      document.getElementById('edit-id').value = item.id;
+      document.getElementById('input-time').value = item.time || '';
+      document.getElementById('input-action').value = item.action || item.title || '';
+      document.getElementById('input-feeling').value = item.feeling || item.text || '';
+      document.getElementById('delete-btn').classList.remove('hidden');
+
+      if(item.type === 'photo' && item.imgUrl) {
+        const img = document.getElementById('image-preview');
+        img.src = item.imgUrl;
+        img.classList.remove('hidden');
+      }
+    }
+
+    async function deleteItem() {
+      const id = document.getElementById('edit-id').value;
+      if(confirm('確定要刪除這條紀錄嗎？')) {
+        await db.collection("logs").doc(id).delete();
+        closeModal();
+      }
+    }
+  </script>
+</body>
+</html>
