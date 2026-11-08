@@ -1,0 +1,11 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 只有你自己的 Google 帳號能讀寫。
+    // 把下面的 YOUR_UID 換成網站「她 → 設定」裡顯示的 UID。
+    // （iPhone 捷徑透過 Netlify 函式寫入，用的是管理員金鑰，不受這條規則影響）
+    match /{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == "YOUR_UID";
+    }
+  }
+}
